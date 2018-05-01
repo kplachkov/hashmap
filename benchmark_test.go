@@ -5,9 +5,17 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/superhawk610/dumbhashmap/dumbhashmap"
 )
 
 const benchmarkItemCount = 1 << 10 // 1024
+
+type Dumbhashmap interface {
+	Get(key string) interface{}
+	Set(key string, value interface{})
+	String() string
+}
 
 func setupHashMap(b *testing.B) *HashMap {
 	m := &HashMap{}
@@ -21,6 +29,19 @@ func setupHashMap(b *testing.B) *HashMap {
 
 func setupHashMapString(b *testing.B) (*HashMap, []string) {
 	m := &HashMap{}
+	keys := make([]string, benchmarkItemCount)
+	for i := 0; i < benchmarkItemCount; i++ {
+		s := strconv.Itoa(i)
+		m.Set(s, s)
+		keys[i] = s
+	}
+
+	b.ResetTimer()
+	return m, keys
+}
+
+func setupDumpHashMapString(b *testing.B) (Dumbhashmap, []string) {
+	m := dumbhashmap.New()
 	keys := make([]string, benchmarkItemCount)
 	for i := 0; i < benchmarkItemCount; i++ {
 		s := strconv.Itoa(i)
@@ -124,6 +145,22 @@ func BenchmarkReadHashMapString(b *testing.B) {
 			for i := 0; i < benchmarkItemCount; i++ {
 				s := keys[i]
 				sVal, _ := m.GetStringKey(s)
+				if sVal != s {
+					b.Fail()
+				}
+			}
+		}
+	})
+}
+
+func BenchmarkReadDumpHashMapString(b *testing.B) {
+	m, keys := setupDumpHashMapString(b)
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			for i := 0; i < benchmarkItemCount; i++ {
+				s := keys[i]
+				sVal := m.Get(s)
 				if sVal != s {
 					b.Fail()
 				}
