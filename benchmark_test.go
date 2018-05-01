@@ -85,6 +85,19 @@ func setupGoSyncMap(b *testing.B) *sync.Map {
 	return m
 }
 
+func setupGoSyncMapString(b *testing.B) (*sync.Map, []string) {
+	m := &sync.Map{}
+	keys := make([]string, benchmarkItemCount)
+	for i := 0; i < benchmarkItemCount; i++ {
+		s := strconv.Itoa(i)
+		m.Store(s, s)
+		keys[i] = s
+	}
+
+	b.ResetTimer()
+	return m, keys
+}
+
 func setupGoMapString(b *testing.B) (map[string]string, []string) {
 	m := make(map[string]string)
 	keys := make([]string, benchmarkItemCount)
@@ -161,6 +174,22 @@ func BenchmarkReadDumpHashMapString(b *testing.B) {
 			for i := 0; i < benchmarkItemCount; i++ {
 				s := keys[i]
 				sVal := m.Get(s)
+				if sVal != s {
+					b.Fail()
+				}
+			}
+		}
+	})
+}
+
+func BenchmarkReadSyncMapString(b *testing.B) {
+	m, keys := setupGoSyncMapString(b)
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			for i := 0; i < benchmarkItemCount; i++ {
+				s := keys[i]
+				sVal, _ := m.Load(s)
 				if sVal != s {
 					b.Fail()
 				}
