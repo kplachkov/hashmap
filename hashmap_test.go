@@ -3,6 +3,7 @@ package hashmap
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -382,4 +383,95 @@ func TestExample(t *testing.T) {
 	if i != j {
 		t.Fail()
 	}
+}
+
+func TestHashMap_parallel(t *testing.T) {
+	max := 10
+	dur := 2 * time.Second
+	m := sync.Map{}
+
+	do := func(t *testing.T, max int, d time.Duration, fn func(*testing.T, int)) <-chan error {
+		t.Helper()
+
+		done := make(chan error)
+
+		var times int64
+
+		// This goroutines will terminate test in case if closure hangs.
+		go func() {
+			for {
+				select {
+				case <-time.After(d + 500*time.Millisecond):
+					if atomic.LoadInt64(&times) == 0 {
+						done <- fmt.Errorf("closure was not executed even once, something blocks it")
+					}
+					close(done)
+				case <-done:
+				}
+			}
+		}()
+
+		go func() {
+			timer := time.NewTimer(d)
+			defer timer.Stop()
+
+		InfLoop:
+			for {
+				for i := 0; i < max; i++ {
+					select {
+					case <-timer.C:
+						break InfLoop
+					default:
+					}
+
+					fn(t, i)
+					atomic.AddInt64(&times, 1)
+				}
+			}
+
+			close(done)
+		}()
+
+		return done
+	}
+	wait := func(t *testing.T, done <-chan error) {
+		t.Helper()
+
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}
+
+	// Initial fill.
+	for i := 0; i < max; i++ {
+		m.Store(i, i)
+		m.Store(fmt.Sprintf("%d", i), i)
+	}
+
+	t.Run("set_get", func(t *testing.T) {
+		doneSet := do(t, max, dur, func(t *testing.T, i int) {
+			m.Store(i, i)
+		})
+		doneGet := do(t, max, dur, func(t *testing.T, i int) {
+			if _, ok := m.Load(i); !ok {
+				t.Errorf("missing value for key: %d", i)
+			}
+		})
+
+		wait(t, doneSet)
+		wait(t, doneGet)
+
+	})
+
+	t.Run("get-or-insert-and-delete", func(t *testing.T) {
+		doneGetOrInsert := do(t, max, dur, func(t *testing.T, i int) {
+			m.LoadOrStore(i, i)
+		})
+		doneDel := do(t, max, dur, func(t *testing.T, i int) {
+			m.Delete(i)
+		})
+
+		wait(t, doneGetOrInsert)
+		wait(t, doneDel)
+	})
 }
